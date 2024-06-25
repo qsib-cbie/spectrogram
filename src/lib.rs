@@ -72,13 +72,13 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
+        vmin: f32,
+        vmax: f32,
     ) -> Result<(), std::io::Error> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+        self.buf_to_img(&buf, &mut img, gradient);
 
         let file = File::create(fname)?;
         let w = &mut BufWriter::new(file);
@@ -107,13 +107,13 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
+        vmin: f32,
+        vmax: f32,
     ) -> Result<Vec<u8>, std::io::Error> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+        self.buf_to_img(&buf, &mut img, gradient);
 
         let mut pngbuf: Vec<u8> = Vec::new();
         let mut encoder = png::Encoder::new(&mut pngbuf, w_img as u32, h_img as u32);
@@ -142,28 +142,20 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
+        vmin: f32,
+        vmax: f32,
     ) -> Vec<u8> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+        self.buf_to_img(&buf, &mut img, gradient);
 
         img
     }
 
     /// Convenience function to convert the the buffer to an image
-    fn buf_to_img(
-        &self,
-        buf: &[f32],
-        img: &mut [u8],
-        gradient: &mut ColourGradient,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
-    ) {
-        let min = vmin.unwrap_or(-80.0);
-        let max = vmax.unwrap_or(0.0);
+    fn buf_to_img(&self, buf: &[f32], img: &mut [u8], gradient: &mut ColourGradient) {
+        let (min, max) = get_min_max(buf);
         gradient.set_min(min);
         gradient.set_max(max);
 
@@ -191,8 +183,8 @@ impl Spectrogram {
         freq_scale: FrequencyScale,
         cols: usize,
         rows: usize,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
+        vmin: f32,
+        vmax: f32,
     ) -> Result<(), std::io::Error> {
         let result = self.to_buffer(freq_scale, cols, rows, vmin, vmax);
 
@@ -234,8 +226,8 @@ impl Spectrogram {
         freq_scale: FrequencyScale,
         img_width: usize,
         img_height: usize,
-        vmin: Option<f32>,
-        vmax: Option<f32>,
+        vmin: f32,
+        vmax: f32,
     ) -> Vec<f32> {
         let mut buf = Vec::with_capacity(self.height * self.width);
 
@@ -288,23 +280,18 @@ pub fn get_min_max(data: &[f32]) -> (f32, f32) {
     (min, max)
 }
 
-fn to_db(buf: &mut [f32], vmin: Option<f32>, vmax: Option<f32>) {
-    // Actual values for the min and max
-    let actual_vmax = vmax.unwrap_or(100.0); // Default vmax to 0 dB if not specified
-    let actual_vmin = vmin.unwrap_or(-80.0); // Default vmin to -80 dB if not specified
-
-    let mut log_spec_max = f32::MIN;
+fn to_db(buf: &mut [f32], vmin: f32, vmax: f32) {
+    // let offset = offset.unwrap_or(vmax);
+    let offset = vmax;
+    // Convert the buffer to dB
     for val in buf.iter_mut() {
-        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - actual_vmax;
-        log_spec_max = f32::max(log_spec_max, *val);
+        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - offset;
     }
-
     // Clip the values to the range [vmin, vmax]
     for val in buf.iter_mut() {
-        *val = f32::max(f32::min(*val, actual_vmax), actual_vmin);
+        *val = f32::max(f32::min(*val, vmax), vmin);
     }
 }
-
 ///
 /// Resize the image buffer
 ///
