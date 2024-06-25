@@ -78,7 +78,7 @@ impl Spectrogram {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
 
         let file = File::create(fname)?;
         let w = &mut BufWriter::new(file);
@@ -113,7 +113,7 @@ impl Spectrogram {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
 
         let mut pngbuf: Vec<u8> = Vec::new();
         let mut encoder = png::Encoder::new(&mut pngbuf, w_img as u32, h_img as u32);
@@ -148,16 +148,22 @@ impl Spectrogram {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
 
         img
     }
 
     /// Convenience function to convert the the buffer to an image
-    fn buf_to_img(&self, buf: &[f32], img: &mut [u8], gradient: &mut ColourGradient) {
-        let (min, max) = get_min_max(buf);
-        gradient.set_min(min);
-        gradient.set_max(max);
+    fn buf_to_img(
+        &self,
+        buf: &[f32],
+        img: &mut [u8],
+        gradient: &mut ColourGradient,
+        vmin: f32,
+        vmax: f32,
+    ) {
+        gradient.set_min(vmin);
+        gradient.set_max(vmax);
 
         // For each pixel, compute the RGBAColour, then assign each byte to output img
         buf.iter()
