@@ -228,6 +228,8 @@ impl Spectrogram {
     ///  * `freq_scale` - The type of frequency scale to use for the spectrogram.
     ///  * `img_width` - The output image width.
     ///  * `img_height` - The output image height.
+    /// * `vmin` - The minimum value to use for the colour gradient.
+    /// * `vmax` - The maximum value to use for the colour gradient.
     ///
     pub fn to_buffer(
         &self,
