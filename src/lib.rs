@@ -30,6 +30,8 @@ pub use builder::SpecOptionsBuilder;
 pub use colour_gradient::{ColourGradient, ColourTheme, RGBAColour};
 pub use errors::SonogramError;
 pub use freq_scales::{FreqScaler, FrequencyScale};
+use rayon::iter::ParallelIterator;
+use rayon::slice::ParallelSliceMut;
 pub use spec_core::SpecCompute;
 pub use window_fn::*;
 
@@ -287,17 +289,24 @@ pub fn get_min_max(data: &[f32]) -> (f32, f32) {
 }
 
 fn to_db(buf: &mut [f32], vmin: f32, vmax: f32) {
-    // let offset = offset.unwrap_or(vmax);
-    let offset = vmax;
-    // Convert the buffer to dB
-    for val in buf.iter_mut() {
-        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - offset;
-    }
-    // Clip the values to the range [vmin, vmax]
-    for val in buf.iter_mut() {
-        *val = f32::max(f32::min(*val, vmax), vmin);
+    let chunk_size = 4096;
+
+    buf.par_chunks_exact_mut(chunk_size)
+        .for_each(|chunk| process_chunk(chunk, vmin, vmax));
+
+    let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
+    if !remainder.is_empty() {
+        process_chunk(remainder, vmin, vmax);
     }
 }
+
+fn process_chunk(chunk: &mut [f32], vmin: f32, vmax: f32) {
+    for val in chunk.iter_mut() {
+        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - vmax; // Convert to dB
+        *val = f32::max(f32::min(*val, vmax), vmin); // Clip the values to the range [vmin, vmax]
+    }
+}
+
 ///
 /// Resize the image buffer
 ///
