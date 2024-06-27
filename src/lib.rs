@@ -159,7 +159,6 @@ impl Spectrogram {
     /// Get the color scale
     ///
     pub fn get_color_scale(
-        &self,
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
@@ -177,7 +176,16 @@ impl Spectrogram {
         }
         // Image conversion
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+
+        gradient.set_min(vmin);
+        gradient.set_max(vmax);
+
+        // For each pixel, compute the RGBAColour, then assign each byte to output img
+        buf.iter()
+            .map(|val| gradient.get_colour(*val))
+            .flat_map(|c| [c.r, c.g, c.b, c.a].into_iter())
+            .zip(img.iter_mut())
+            .for_each(|(val_rgba, img_rgba)| *img_rgba = val_rgba);
 
         img
     }
