@@ -155,6 +155,33 @@ impl Spectrogram {
         img
     }
 
+    ///
+    /// Get the color scale
+    ///
+    pub fn get_color_scale(
+        &self,
+        gradient: &mut ColourGradient,
+        w_img: usize,
+        h_img: usize,
+        vmin: f32,
+        vmax: f32,
+    ) -> Vec<u8> {
+        let mut buf: Vec<f32> = Vec::with_capacity(w_img * h_img);
+
+        // Equally distribute the values in the buffer from vmin to vmax. For example, if the height is 10 pixels and  the vmin to vmax is 0 to 10, then the values will be [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for i in 0..h_img {
+            let val = vmin + (vmax - vmin) * (i as f32) / (h_img as f32);
+            for _ in 0..w_img {
+                buf.push(val);
+            }
+        }
+        // Image conversion
+        let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+
+        img
+    }
+
     /// Convenience function to convert the the buffer to an image
     fn buf_to_img(
         &self,
