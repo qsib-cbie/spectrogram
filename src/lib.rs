@@ -15,9 +15,11 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#![feature(test)]
 extern crate csv;
 #[cfg(feature = "png")]
 extern crate png;
+extern crate test;
 
 mod builder;
 mod colour_gradient;
@@ -326,7 +328,7 @@ pub fn get_min_max(data: &[f32]) -> (f32, f32) {
 }
 
 fn to_db(buf: &mut [f32], vmin: f32, vmax: f32) {
-    let chunk_size = 4096;
+    let chunk_size = 1 << 16;
 
     buf.par_chunks_exact_mut(chunk_size)
         .for_each(|chunk| process_chunk(chunk, vmin, vmax));
@@ -339,7 +341,8 @@ fn to_db(buf: &mut [f32], vmin: f32, vmax: f32) {
 
 fn process_chunk(chunk: &mut [f32], vmin: f32, vmax: f32) {
     for val in chunk.iter_mut() {
-        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - vmax; // Convert to dB
+        *val = *val + 1e-10;
+        *val = 10.0 * (val.powi(2)).log10() - vmax; // Convert to dB
         *val = f32::max(f32::min(*val, vmax), vmin); // Clip the values to the range [vmin, vmax]
     }
 }
