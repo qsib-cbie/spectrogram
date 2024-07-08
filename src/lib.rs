@@ -76,8 +76,8 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<(), std::io::Error> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
@@ -111,8 +111,8 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<Vec<u8>, std::io::Error> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
@@ -146,8 +146,8 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Vec<u8> {
         let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
@@ -198,9 +198,18 @@ impl Spectrogram {
         buf: &[f32],
         img: &mut [u8],
         gradient: &mut ColourGradient,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) {
+        // If the min and max values are not provided, calculate them
+        let (vmin, vmax) = match (vmin, vmax) {
+            (Some(vmin), Some(vmax)) => (vmin, vmax),
+            _ => {
+                let (vmin, vmax) = get_min_max(buf);
+                (vmin, vmax)
+            }
+        };
+
         gradient.set_min(vmin);
         gradient.set_max(vmax);
 
@@ -228,8 +237,8 @@ impl Spectrogram {
         freq_scale: FrequencyScale,
         cols: usize,
         rows: usize,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<(), std::io::Error> {
         let result = self.to_buffer(freq_scale, cols, rows, vmin, vmax);
 
@@ -273,8 +282,8 @@ impl Spectrogram {
         freq_scale: FrequencyScale,
         img_width: usize,
         img_height: usize,
-        vmin: f32,
-        vmax: f32,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Vec<f32> {
         let mut buf = Vec::with_capacity(self.height * self.width);
 
@@ -327,23 +336,58 @@ pub fn get_min_max(data: &[f32]) -> (f32, f32) {
     (min, max)
 }
 
-fn to_db(buf: &mut [f32], vmin: f32, vmax: f32) {
+fn to_db(buf: &mut [f32], vmin: Option<f32>, vmax: Option<f32>) {
     let chunk_size = 1 << 16;
 
-    buf.par_chunks_exact_mut(chunk_size)
-        .for_each(|chunk| process_chunk(chunk, vmin, vmax));
+    if let (Some(vmin), Some(vmax)) = (vmin, vmax) {
+        // Case: vmin and vmax are provided
 
-    let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
-    if !remainder.is_empty() {
-        process_chunk(remainder, vmin, vmax);
+        // Convert the buffer to dB and clip the values
+        buf.par_chunks_exact_mut(chunk_size)
+            .for_each(|chunk| process_chunk_with_user_limits(chunk, vmin, vmax));
+        let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
+        if !remainder.is_empty() {
+            process_chunk_with_user_limits(remainder, vmin, vmax);
+        }
+    } else {
+        // Case: vmin and vmax are calculated from the data
+
+        // Find the maximum value in the buffer
+        let mut buf_max = f32::MIN;
+        buf.iter().for_each(|v| buf_max = f32::max(buf_max, *v));
+
+        // Calculate the offset
+        let offset = 10.0 * (f32::max(1e-10, buf_max * buf_max)).log10();
+
+        // Convert the buffer to dB
+        let mut log_spec_max = f32::MIN;
+        for val in buf.iter_mut() {
+            *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - offset;
+            log_spec_max = f32::max(log_spec_max, *val);
+        }
+
+        // Clip the values
+        buf.par_chunks_exact_mut(chunk_size)
+            .for_each(|chunk| process_chunk_with_calculated_limits(chunk, log_spec_max));
+
+        let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
+        if !remainder.is_empty() {
+            process_chunk_with_calculated_limits(remainder, log_spec_max);
+        }
     }
 }
 
-fn process_chunk(chunk: &mut [f32], vmin: f32, vmax: f32) {
+fn process_chunk_with_user_limits(chunk: &mut [f32], vmin: f32, vmax: f32) {
     for val in chunk.iter_mut() {
         *val = *val + 1e-10;
         *val = 10.0 * (val.powi(2)).log10() - vmax; // Convert to dB
         *val = f32::max(f32::min(*val, vmax), vmin); // Clip the values to the range [vmin, vmax]
+    }
+}
+
+fn process_chunk_with_calculated_limits(chunk: &mut [f32], log_spec_max: f32) {
+    for val in chunk.iter_mut() {
+        *val = f32::max(*val, log_spec_max - 80.0);
     }
 }
 
