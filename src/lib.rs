@@ -377,6 +377,7 @@ fn to_db(buf: &mut [f32], vmin: Option<f32>, vmax: Option<f32>) {
     }
 }
 
+#[inline(always)]
 fn process_chunk_with_user_limits(chunk: &mut [f32], vmin: f32, vmax: f32) {
     for val in chunk.iter_mut() {
         *val = *val + 1e-10;
@@ -385,6 +386,7 @@ fn process_chunk_with_user_limits(chunk: &mut [f32], vmin: f32, vmax: f32) {
     }
 }
 
+#[inline(always)]
 fn process_chunk_with_calculated_limits(chunk: &mut [f32], log_spec_max: f32) {
     for val in chunk.iter_mut() {
         *val = f32::max(*val, log_spec_max - 80.0);
