@@ -15,9 +15,11 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#![feature(test)]
 extern crate csv;
 #[cfg(feature = "png")]
 extern crate png;
+extern crate test;
 
 mod builder;
 mod colour_gradient;
@@ -30,6 +32,8 @@ pub use builder::SpecOptionsBuilder;
 pub use colour_gradient::{ColourGradient, ColourTheme, RGBAColour};
 pub use errors::SonogramError;
 pub use freq_scales::{FreqScaler, FrequencyScale};
+use rayon::iter::ParallelIterator;
+use rayon::slice::ParallelSliceMut;
 pub use spec_core::SpecCompute;
 pub use window_fn::*;
 
@@ -72,11 +76,13 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<(), std::io::Error> {
-        let buf = self.to_buffer(freq_scale, w_img, h_img);
+        let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
 
         let file = File::create(fname)?;
         let w = &mut BufWriter::new(file);
@@ -105,11 +111,13 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let buf = self.to_buffer(freq_scale, w_img, h_img);
+        let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
 
         let mut pngbuf: Vec<u8> = Vec::new();
         let mut encoder = png::Encoder::new(&mut pngbuf, w_img as u32, h_img as u32);
@@ -138,20 +146,72 @@ impl Spectrogram {
         gradient: &mut ColourGradient,
         w_img: usize,
         h_img: usize,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Vec<u8> {
-        let buf = self.to_buffer(freq_scale, w_img, h_img);
+        let buf = self.to_buffer(freq_scale, w_img, h_img, vmin, vmax);
 
         let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-        self.buf_to_img(&buf, &mut img, gradient);
+        self.buf_to_img(&buf, &mut img, gradient, vmin, vmax);
+
+        img
+    }
+
+    ///
+    /// Get the color scale
+    ///
+    pub fn get_color_scale(
+        gradient: &mut ColourGradient,
+        w_img: usize,
+        h_img: usize,
+        vmin: f32,
+        vmax: f32,
+    ) -> Vec<u8> {
+        let mut buf: Vec<f32> = Vec::with_capacity(w_img * h_img);
+
+        // Equally distribute the values in the buffer from vmin to vmax. For example, if the height is 10 pixels and  the vmin to vmax is 0 to 10, then the values will be [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for i in 0..h_img {
+            let val = vmin + (vmax - vmin) * (i as f32) / (h_img as f32);
+            for _ in 0..w_img {
+                buf.push(val);
+            }
+        }
+        // Image conversion
+        let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
+
+        gradient.set_min(vmin);
+        gradient.set_max(vmax);
+
+        // For each pixel, compute the RGBAColour, then assign each byte to output img
+        buf.iter()
+            .map(|val| gradient.get_colour(*val))
+            .flat_map(|c| [c.r, c.g, c.b, c.a].into_iter())
+            .zip(img.iter_mut())
+            .for_each(|(val_rgba, img_rgba)| *img_rgba = val_rgba);
 
         img
     }
 
     /// Convenience function to convert the the buffer to an image
-    fn buf_to_img(&self, buf: &[f32], img: &mut [u8], gradient: &mut ColourGradient) {
-        let (min, max) = get_min_max(buf);
-        gradient.set_min(min);
-        gradient.set_max(max);
+    fn buf_to_img(
+        &self,
+        buf: &[f32],
+        img: &mut [u8],
+        gradient: &mut ColourGradient,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
+    ) {
+        // If the min and max values are not provided, calculate them
+        let (vmin, vmax) = match (vmin, vmax) {
+            (Some(vmin), Some(vmax)) => (vmin, vmax),
+            _ => {
+                let (vmin, vmax) = get_min_max(buf);
+                (vmin, vmax)
+            }
+        };
+
+        gradient.set_min(vmin);
+        gradient.set_max(vmax);
 
         // For each pixel, compute the RGBAColour, then assign each byte to output img
         buf.iter()
@@ -177,8 +237,10 @@ impl Spectrogram {
         freq_scale: FrequencyScale,
         cols: usize,
         rows: usize,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Result<(), std::io::Error> {
-        let result = self.to_buffer(freq_scale, cols, rows);
+        let result = self.to_buffer(freq_scale, cols, rows, vmin, vmax);
 
         let mut writer = csv::Writer::from_path(fname)?;
 
@@ -212,12 +274,16 @@ impl Spectrogram {
     ///  * `freq_scale` - The type of frequency scale to use for the spectrogram.
     ///  * `img_width` - The output image width.
     ///  * `img_height` - The output image height.
+    /// * `vmin` - The minimum value to use for the colour gradient.
+    /// * `vmax` - The maximum value to use for the colour gradient.
     ///
     pub fn to_buffer(
         &self,
         freq_scale: FrequencyScale,
         img_width: usize,
         img_height: usize,
+        vmin: Option<f32>,
+        vmax: Option<f32>,
     ) -> Vec<f32> {
         let mut buf = Vec::with_capacity(self.height * self.width);
 
@@ -247,7 +313,7 @@ impl Spectrogram {
         }
 
         // Convert the buffer to dB
-        to_db(&mut buf);
+        to_db(&mut buf, vmin, vmax);
 
         resize(&buf, self.width, self.height, img_width, img_height)
     }
@@ -270,20 +336,59 @@ pub fn get_min_max(data: &[f32]) -> (f32, f32) {
     (min, max)
 }
 
-fn to_db(buf: &mut [f32]) {
-    let mut ref_db = f32::MIN;
-    buf.iter().for_each(|v| ref_db = f32::max(ref_db, *v));
+fn to_db(buf: &mut [f32], vmin: Option<f32>, vmax: Option<f32>) {
+    let chunk_size = 1 << 16;
 
-    let amp_ref = ref_db * ref_db;
-    let offset = 10.0 * (f32::max(1e-10, amp_ref)).log10();
-    let mut log_spec_max = f32::MIN;
+    if let (Some(vmin), Some(vmax)) = (vmin, vmax) {
+        // Case: vmin and vmax are provided
 
-    for val in buf.iter_mut() {
-        *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - offset;
-        log_spec_max = f32::max(log_spec_max, *val);
+        // Convert the buffer to dB and clip the values
+        buf.par_chunks_exact_mut(chunk_size)
+            .for_each(|chunk| process_chunk_with_user_limits(chunk, vmin, vmax));
+        let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
+        if !remainder.is_empty() {
+            process_chunk_with_user_limits(remainder, vmin, vmax);
+        }
+    } else {
+        // Case: vmin and vmax are calculated from the data
+
+        // Find the maximum value in the buffer
+        let mut buf_max = f32::MIN;
+        buf.iter().for_each(|v| buf_max = f32::max(buf_max, *v));
+
+        // Calculate the offset
+        let offset = 10.0 * (f32::max(1e-10, buf_max * buf_max)).log10();
+
+        // Convert the buffer to dB
+        let mut log_spec_max = f32::MIN;
+        for val in buf.iter_mut() {
+            *val = 10.0 * (f32::max(1e-10, *val * *val)).log10() - offset;
+            log_spec_max = f32::max(log_spec_max, *val);
+        }
+
+        // Clip the values
+        buf.par_chunks_exact_mut(chunk_size)
+            .for_each(|chunk| process_chunk_with_calculated_limits(chunk, log_spec_max));
+
+        let remainder = buf.chunks_exact_mut(chunk_size).into_remainder();
+        if !remainder.is_empty() {
+            process_chunk_with_calculated_limits(remainder, log_spec_max);
+        }
     }
+}
 
-    for val in buf.iter_mut() {
+#[inline(always)]
+fn process_chunk_with_user_limits(chunk: &mut [f32], vmin: f32, vmax: f32) {
+    for val in chunk.iter_mut() {
+        *val = *val + 1e-10;
+        *val = 10.0 * (val.powi(2)).log10() - vmax; // Convert to dB
+        *val = f32::max(f32::min(*val, vmax), vmin); // Clip the values to the range [vmin, vmax]
+    }
+}
+
+#[inline(always)]
+fn process_chunk_with_calculated_limits(chunk: &mut [f32], log_spec_max: f32) {
+    for val in chunk.iter_mut() {
         *val = f32::max(*val, log_spec_max - 80.0);
     }
 }

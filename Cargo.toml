@@ -24,6 +24,6 @@ clap = { version = "3.0.14", features = ["derive"], optional = true }
 png = { version = "0.14", optional = true }
 csv = "1.1"
 rustfft = "6.0"
-resize = "0.7.2"
+resize = "0.8.4"
 rgb = "0.8.25"
 rayon = { version = "1.7.0", optional = true }
