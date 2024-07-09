@@ -489,4 +489,36 @@ mod tests {
         let c = integrate(0.0, 4.0, &v);
         assert!((c - 8.123).abs() < 0.0001);
     }
+
+    #[test]
+    fn test_create_color_scale() {
+        let vmin = -100.0;
+        let vmax = 100.0;
+        let fname = std::path::Path::new("color-scale.png");
+
+        // let mut gradient = ColourGradient::create(ColourTheme::Audacity);
+
+        // Custom gradient
+        let mut gradient = ColourGradient::new();
+        gradient.add_colour(RGBAColour::new(0, 0, 0, 255)); // Black
+        gradient.add_colour(RGBAColour::new(0, 0, 128, 255)); // Dark Blue
+        gradient.add_colour(RGBAColour::new(114, 169, 242, 255)); // Blue
+        gradient.add_colour(RGBAColour::new(227, 61, 215, 255)); // Pink
+        gradient.add_colour(RGBAColour::new(246, 55, 55, 255)); // Red
+        gradient.add_colour(RGBAColour::new(255, 255, 255, 255)); // White
+
+        let w_img = 20;
+        let h_img = 512;
+
+        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax);
+
+        let file = File::create(fname).unwrap();
+        let w = &mut BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, w_img as u32, h_img as u32);
+        encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&img).unwrap(); // Save
+
+        assert!(true);
+    }
 }
