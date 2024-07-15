@@ -168,27 +168,29 @@ impl Spectrogram {
         vmax: f32,
         vertical: bool,
     ) -> Vec<u8> {
-        let mut buf: Vec<f32> = Vec::with_capacity(w_img * h_img);
+        let mut buf: Vec<f32> = vec![0.0; w_img * h_img];
 
         // Equally distribute the values in the buffer from vmin to vmax. For example, if the height is 10 pixels and  the vmin to vmax is 0 to 10, then the values will be [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        let (outer, inner) = if vertical {
-            (h_img, w_img)
-        } else {
-            (w_img, h_img)
-        };
-        for i in 0..outer {
-            let val = vmin + (vmax - vmin) * (i as f32) / (outer as f32);
-            for _ in 0..inner {
-                buf.push(val);
+        if vertical {
+            for i in 0..h_img {
+                let val = vmin + (vmax - vmin) * (i as f32) / (h_img as f32);
+                for j in 0..w_img {
+                    buf[(i * w_img) + j] = val;
+                }
             }
-        }
-        // Image conversion
-        let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
-
-        gradient.set_min(vmin);
-        gradient.set_max(vmax);
+        } else {
+            for i in 0..w_img {
+                let val = vmin + (vmax - vmin) * (i as f32) / (w_img as f32);
+                for j in 0..h_img {
+                    buf[(j * w_img) + i] = val;
+                }
+            }
+        };
 
         // For each pixel, compute the RGBAColour, then assign each byte to output img
+        let mut img: Vec<u8> = vec![0u8; w_img * h_img * 4];
+        gradient.set_min(vmin);
+        gradient.set_max(vmax);
         buf.iter()
             .map(|val| gradient.get_colour(*val))
             .flat_map(|c| [c.r, c.g, c.b, c.a].into_iter())
@@ -500,9 +502,7 @@ mod tests {
     fn test_create_color_scale() {
         let vmin = -100.0;
         let vmax = 100.0;
-        let fname = std::path::Path::new("color-scale.png");
-
-        // let mut gradient = ColourGradient::create(ColourTheme::Audacity);
+        let fname = std::path::Path::new("color-scale-vert.png");
 
         // Custom gradient
         let mut gradient = ColourGradient::new();
@@ -516,7 +516,7 @@ mod tests {
         let w_img = 20;
         let h_img = 512;
 
-        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax, true);
+        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax, false);
 
         let file = File::create(fname).unwrap();
         let w = &mut BufWriter::new(file);
@@ -525,6 +525,17 @@ mod tests {
         let mut writer = encoder.write_header().unwrap();
         writer.write_image_data(&img).unwrap(); // Save
 
-        assert!(true);
+        let fname = std::path::Path::new("color-scale-horz.png");
+        let w_img = 512;
+        let h_img = 20;
+
+        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax, false);
+
+        let file = File::create(fname).unwrap();
+        let w = &mut BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, w_img as u32, h_img as u32);
+        encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&img).unwrap(); // Save
     }
 }
