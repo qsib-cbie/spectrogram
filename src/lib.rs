@@ -166,13 +166,19 @@ impl Spectrogram {
         h_img: usize,
         vmin: f32,
         vmax: f32,
+        vertical: bool,
     ) -> Vec<u8> {
         let mut buf: Vec<f32> = Vec::with_capacity(w_img * h_img);
 
         // Equally distribute the values in the buffer from vmin to vmax. For example, if the height is 10 pixels and  the vmin to vmax is 0 to 10, then the values will be [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        for i in 0..h_img {
-            let val = vmin + (vmax - vmin) * (i as f32) / (h_img as f32);
-            for _ in 0..w_img {
+        let (outer, inner) = if vertical {
+            (h_img, w_img)
+        } else {
+            (w_img, h_img)
+        };
+        for i in 0..outer {
+            let val = vmin + (vmax - vmin) * (i as f32) / (outer as f32);
+            for _ in 0..inner {
                 buf.push(val);
             }
         }
@@ -510,7 +516,7 @@ mod tests {
         let w_img = 20;
         let h_img = 512;
 
-        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax);
+        let img = Spectrogram::get_color_scale(&mut gradient, w_img, h_img, vmin, vmax, true);
 
         let file = File::create(fname).unwrap();
         let w = &mut BufWriter::new(file);
