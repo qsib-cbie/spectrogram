@@ -15,11 +15,9 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#![feature(test)]
 extern crate csv;
 #[cfg(feature = "png")]
 extern crate png;
-extern crate test;
 
 mod builder;
 mod colour_gradient;
